@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 本地資料庫
+/data/
+
+# 瀏覽器測試
+/browser-tests/
