@@ -11,7 +11,7 @@ export async function GET(
   const { id } = await params
   const handoverId = Number(id)
 
-  const handover = db.select()
+  const handover = await db.select()
     .from(cashHandovers)
     .where(eq(cashHandovers.id, handoverId))
     .get()
@@ -21,7 +21,7 @@ export async function GET(
   }
 
   // 取得相關的管理費 payments
-  const relatedPayments = db.select({
+  const relatedPayments = await db.select({
     id: payments.id,
     unitCode: households.unitCode,
     ownerName: households.ownerName,
@@ -35,7 +35,7 @@ export async function GET(
     .all()
 
   // 取得相關的臨時收費 payments
-  const relatedAdhocPayments = db.select({
+  const relatedAdhocPayments = await db.select({
     id: adhocPayments.id,
     unitCode: households.unitCode,
     ownerName: households.ownerName,

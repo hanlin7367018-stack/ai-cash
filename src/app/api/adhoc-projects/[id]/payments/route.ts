@@ -11,7 +11,7 @@ export async function GET(
   const { id } = await params
   const projectId = Number(id)
 
-  const records = db.select({
+  const records = await db.select({
     id: adhocPayments.id,
     householdId: adhocPayments.householdId,
     unitCode: households.unitCode,
@@ -46,7 +46,7 @@ export async function POST(
     return NextResponse.json({ error: '請選擇住戶' }, { status: 400 })
   }
 
-  const project = db.select().from(adhocProjects)
+  const project = await db.select().from(adhocProjects)
     .where(eq(adhocProjects.id, projectId)).get()
 
   if (!project) {
@@ -58,13 +58,11 @@ export async function POST(
   }
 
   // 過濾掉已繳住戶
-  const existingPaidIds = new Set(
-    db.select({ householdId: adhocPayments.householdId })
-      .from(adhocPayments)
-      .where(eq(adhocPayments.projectId, projectId))
-      .all()
-      .map((p) => p.householdId)
-  )
+  const paidRows = await db.select({ householdId: adhocPayments.householdId })
+    .from(adhocPayments)
+    .where(eq(adhocPayments.projectId, projectId))
+    .all()
+  const existingPaidIds = new Set(paidRows.map((p) => p.householdId))
 
   const newHouseholdIds = (body.householdIds as number[])
     .filter((hid) => !existingPaidIds.has(hid))
@@ -76,7 +74,7 @@ export async function POST(
   // 批次新增
   const results: unknown[] = []
   for (const householdId of newHouseholdIds) {
-    const result = db.insert(adhocPayments).values({
+    const result = await db.insert(adhocPayments).values({
       projectId,
       householdId,
       amount: project.amount,

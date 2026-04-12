@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '請輸入帳號和密碼' }, { status: 400 })
     }
 
-    const user = db.select().from(users).where(eq(users.username, username)).get()
+    const user = await db.select().from(users).where(eq(users.username, username)).get()
     if (!user || !compareSync(password, user.passwordHash)) {
       return NextResponse.json({ error: '帳號或密碼錯誤' }, { status: 401 })
     }

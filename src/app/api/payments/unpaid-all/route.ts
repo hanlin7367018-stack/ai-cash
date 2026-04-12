@@ -6,7 +6,7 @@ import { eq, asc } from 'drizzle-orm'
 // 跨期未繳查詢：彙整所有 open 期別中每戶的未繳狀況
 export async function GET() {
   // 1. 取得所有 open 狀態的期別
-  const openPeriods = db.select()
+  const openPeriods = await db.select()
     .from(billingPeriods)
     .where(eq(billingPeriods.status, 'open'))
     .all()
@@ -16,14 +16,14 @@ export async function GET() {
   }
 
   // 2. 取得所有啟用中的住戶
-  const allHouseholds = db.select()
+  const allHouseholds = await db.select()
     .from(households)
     .where(eq(households.isActive, true))
     .orderBy(asc(households.building), asc(households.doorNumber))
     .all()
 
   // 3. 取得所有 open 期別的繳費記錄（householdId + periodId）
-  const allPayments = db.select({
+  const allPayments = await db.select({
     householdId: payments.householdId,
     periodId: payments.periodId,
   })

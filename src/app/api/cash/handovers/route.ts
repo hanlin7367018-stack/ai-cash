@@ -7,7 +7,7 @@ import { calculateDenominationTotal, DENOMINATIONS } from '@/lib/constants'
 
 // 取得交付記錄
 export async function GET() {
-  const result = db.select()
+  const result = await db.select()
     .from(cashHandovers)
     .orderBy(desc(cashHandovers.createdAt))
     .all()
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     const denominationTotal = calculateDenominationTotal(counts)
 
     // 計算待交付現金總額和筆數（管理費 + 臨時收費合併）
-    const regularStats = db.select({
+    const regularStats = await db.select({
       totalAmount: sql<number>`COALESCE(SUM(${payments.totalAmount}), 0)`,
       totalCount: sql<number>`COUNT(*)`,
     })
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       )
       .get()
 
-    const adhocStats = db.select({
+    const adhocStats = await db.select({
       totalAmount: sql<number>`COALESCE(SUM(${adhocPayments.amount}), 0)`,
       totalCount: sql<number>`COUNT(*)`,
     })
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 建立交付記錄
-    const handover = db.insert(cashHandovers).values({
+    const handover = await db.insert(cashHandovers).values({
       periodId: body.periodId,
       handoverDate: todayString(),
       totalCount,
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     }).returning().get()
 
     // 將所有待交付的現金 payment 標記為已交付
-    db.update(payments)
+    await db.update(payments)
       .set({
         handoverStatus: 'handed_over',
         handoverId: handover.id,
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
       .run()
 
     // 同時標記臨時收費的待交付現金
-    db.update(adhocPayments)
+    await db.update(adhocPayments)
       .set({
         handoverStatus: 'handed_over',
         handoverId: handover.id,

@@ -8,18 +8,19 @@ export async function GET(req: NextRequest) {
   const status = req.nextUrl.searchParams.get('status')
 
   const projects = status
-    ? db.select().from(adhocProjects)
+    ? await db.select().from(adhocProjects)
         .where(eq(adhocProjects.status, status as 'open' | 'closed'))
         .orderBy(desc(adhocProjects.createdAt)).all()
-    : db.select().from(adhocProjects)
+    : await db.select().from(adhocProjects)
         .orderBy(desc(adhocProjects.createdAt)).all()
 
   // 取得啟用住戶總數
-  const totalHouseholds = db.select({ count: sql<number>`COUNT(*)` })
-    .from(households).where(eq(households.isActive, true)).get()?.count ?? 0
+  const totalHouseholdsRow = await db.select({ count: sql<number>`COUNT(*)` })
+    .from(households).where(eq(households.isActive, true)).get()
+  const totalHouseholds = totalHouseholdsRow?.count ?? 0
 
   // 取得每個專案的已繳戶數
-  const paidCounts = db.select({
+  const paidCounts = await db.select({
     projectId: adhocPayments.projectId,
     count: sql<number>`COUNT(DISTINCT ${adhocPayments.householdId})`,
   }).from(adhocPayments).groupBy(adhocPayments.projectId).all()
@@ -45,7 +46,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: '請填寫專案名稱和金額' }, { status: 400 })
     }
 
-    const result = db.insert(adhocProjects).values({
+    const result = await db.insert(adhocProjects).values({
       name: body.name,
       amount: body.amount,
       note: body.note || null,

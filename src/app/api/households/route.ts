@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const result = db.insert(households).values({
+    const result = await db.insert(households).values({
       unitCode: body.unitCode,
       building: body.building,
       doorNumber: body.doorNumber,

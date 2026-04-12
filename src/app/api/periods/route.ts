@@ -5,7 +5,7 @@ import { desc } from 'drizzle-orm'
 
 // 取得所有期別
 export async function GET() {
-  const result = db.select().from(billingPeriods)
+  const result = await db.select().from(billingPeriods)
     .orderBy(desc(billingPeriods.rocYear), desc(billingPeriods.startMonth))
     .all()
   return NextResponse.json(result)
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     const { rocYear, startMonth, endMonth } = await req.json()
     const periodName = `${rocYear}年${startMonth}-${endMonth}月`
 
-    const result = db.insert(billingPeriods).values({
+    const result = await db.insert(billingPeriods).values({
       rocYear,
       startMonth,
       endMonth,

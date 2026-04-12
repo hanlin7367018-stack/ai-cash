@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const household = db.select().from(households).where(eq(households.id, Number(id))).get()
+  const household = await db.select().from(households).where(eq(households.id, Number(id))).get()
   if (!household) {
     return NextResponse.json({ error: '找不到住戶' }, { status: 404 })
   }
@@ -24,7 +24,7 @@ export async function PUT(
   const { id } = await params
   const body = await req.json()
   try {
-    const result = db.update(households)
+    const result = await db.update(households)
       .set({
         ownerName: body.ownerName,
         phone: body.phone || null,
@@ -52,7 +52,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  db.update(households)
+  await db.update(households)
     .set({ isActive: false })
     .where(eq(households.id, Number(id)))
     .run()

@@ -6,7 +6,7 @@ import { and, eq, sql } from 'drizzle-orm'
 // 取得目前手持現金餘額（管理費 + 臨時收費合併）
 export async function GET() {
   // 管理費待交付現金
-  const regularResult = db.select({
+  const regularResult = await db.select({
     balance: sql<number>`COALESCE(SUM(${payments.totalAmount}), 0)`,
   })
     .from(payments)
@@ -19,7 +19,7 @@ export async function GET() {
     .get()
 
   // 臨時收費待交付現金
-  const adhocResult = db.select({
+  const adhocResult = await db.select({
     balance: sql<number>`COALESCE(SUM(${adhocPayments.amount}), 0)`,
   })
     .from(adhocPayments)

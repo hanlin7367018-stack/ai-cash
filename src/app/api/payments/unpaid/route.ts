@@ -11,18 +11,18 @@ export async function GET(req: NextRequest) {
   }
 
   // 取得所有啟用中的住戶
-  const allHouseholds = db.select()
+  const allHouseholds = await db.select()
     .from(households)
     .where(eq(households.isActive, true))
     .orderBy(asc(households.building), asc(households.doorNumber))
     .all()
 
   // 取得已繳的住戶 ID
-  const paidHouseholdIds = db.select({ householdId: payments.householdId })
+  const paidRows = await db.select({ householdId: payments.householdId })
     .from(payments)
     .where(eq(payments.periodId, Number(periodId)))
     .all()
-    .map((p) => p.householdId)
+  const paidHouseholdIds = paidRows.map((p) => p.householdId)
 
   const paidSet = new Set(paidHouseholdIds)
 

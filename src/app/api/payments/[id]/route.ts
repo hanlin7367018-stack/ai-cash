@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  const result = db.select({
+  const result = await db.select({
     id: payments.id,
     householdId: payments.householdId,
     periodId: payments.periodId,
@@ -57,7 +57,7 @@ export async function PUT(
     (body.cableTvFee || 0) +
     (body.sensorFee || 0)
 
-  const result = db.update(payments)
+  const result = await db.update(payments)
     .set({ ...body, totalAmount })
     .where(eq(payments.id, Number(id)))
     .returning().get()
@@ -71,6 +71,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params
-  db.delete(payments).where(eq(payments.id, Number(id))).run()
+  await db.delete(payments).where(eq(payments.id, Number(id))).run()
   return NextResponse.json({ success: true })
 }

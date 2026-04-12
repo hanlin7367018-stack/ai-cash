@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
 // 匯出交付簽收單
 async function exportHandover(handoverId: number) {
-  const handover = db.select()
+  const handover = await db.select()
     .from(cashHandovers)
     .where(eq(cashHandovers.id, handoverId))
     .get()
@@ -34,13 +34,13 @@ async function exportHandover(handoverId: number) {
   }
 
   // 取得期別名稱
-  const period = db.select()
+  const period = await db.select()
     .from(billingPeriods)
     .where(eq(billingPeriods.id, handover.periodId))
     .get()
 
   // 取得收款明細
-  const relatedPayments = db.select({
+  const relatedPayments = await db.select({
     unitCode: households.unitCode,
     ownerName: households.ownerName,
     totalAmount: payments.totalAmount,
@@ -104,7 +104,7 @@ async function exportHandover(handoverId: number) {
   ws.addRow([])
 
   // 臨時收費明細
-  const relatedAdhoc = db.select({
+  const relatedAdhoc = await db.select({
     unitCode: households.unitCode,
     ownerName: households.ownerName,
     amount: adhocPayments.amount,
@@ -148,26 +148,24 @@ async function exportHandover(handoverId: number) {
 
 // 匯出未繳清單
 async function exportUnpaid(periodIdNum: number) {
-  const period = db.select()
+  const period = await db.select()
     .from(billingPeriods)
     .where(eq(billingPeriods.id, periodIdNum))
     .get()
 
   // 所有啟用住戶
-  const allHouseholds = db.select()
+  const allHouseholds = await db.select()
     .from(households)
     .where(eq(households.isActive, true))
     .orderBy(asc(households.building), asc(households.doorNumber))
     .all()
 
   // 已繳住戶 ID
-  const paidIds = new Set(
-    db.select({ householdId: payments.householdId })
-      .from(payments)
-      .where(eq(payments.periodId, periodIdNum))
-      .all()
-      .map((p) => p.householdId)
-  )
+  const paidRows = await db.select({ householdId: payments.householdId })
+    .from(payments)
+    .where(eq(payments.periodId, periodIdNum))
+    .all()
+  const paidIds = new Set(paidRows.map((p) => p.householdId))
 
   const unpaid = allHouseholds.filter((h) => !paidIds.has(h.id))
 

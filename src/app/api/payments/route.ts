@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   query.orderBy(desc(payments.createdAt))
   if (limit) query.limit(Number(limit))
 
-  const result = query.all()
+  const result = await query.all()
   return NextResponse.json(result)
 }
 
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     // 收據編號：前端傳來則使用，否則自動產生
     let receiptNumber = body.receiptNumber?.trim()
     if (!receiptNumber) {
-      const lastPayment = db.select({ receiptNumber: payments.receiptNumber })
+      const lastPayment = await db.select({ receiptNumber: payments.receiptNumber })
         .from(payments)
         .orderBy(desc(payments.id))
         .limit(1)
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
       receiptNumber = `NO.${nextNumber}`
     }
 
-    const result = db.insert(payments).values({
+    const result = await db.insert(payments).values({
       householdId: body.householdId,
       periodId: body.periodId,
       receiptNumber,

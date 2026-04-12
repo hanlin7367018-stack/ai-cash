@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic"
 
 // 伺服器端取得單筆交付完整資料
 async function getHandoverData(id: number) {
-  const handover = db
+  const handover = await db
     .select()
     .from(cashHandovers)
     .where(eq(cashHandovers.id, id))
@@ -25,13 +25,13 @@ async function getHandoverData(id: number) {
 
   if (!handover) return null
 
-  const period = db
+  const period = await db
     .select()
     .from(billingPeriods)
     .where(eq(billingPeriods.id, handover.periodId))
     .get()
 
-  const relatedPayments = db
+  const relatedPayments = await db
     .select({
       id: payments.id,
       unitCode: households.unitCode,
@@ -49,7 +49,7 @@ async function getHandoverData(id: number) {
     .all()
 
   // 臨時收費明細
-  const relatedAdhocPayments = db
+  const relatedAdhocPayments = await db
     .select({
       id: adhocPayments.id,
       unitCode: households.unitCode,

@@ -11,25 +11,27 @@ export async function GET(
   const { id } = await params
   const periodId = Number(id)
 
-  const period = db.select().from(billingPeriods).where(eq(billingPeriods.id, periodId)).get()
+  const period = await db.select().from(billingPeriods).where(eq(billingPeriods.id, periodId)).get()
   if (!period) {
     return NextResponse.json({ error: '找不到期別' }, { status: 404 })
   }
 
   // 總住戶數
-  const totalHouseholds = db.select({ count: sql<number>`COUNT(*)` })
+  const totalHouseholdsRow = await db.select({ count: sql<number>`COUNT(*)` })
     .from(households)
     .where(eq(households.isActive, true))
-    .get()?.count ?? 0
+    .get()
+  const totalHouseholds = totalHouseholdsRow?.count ?? 0
 
   // 已繳戶數
-  const paidCount = db.select({ count: sql<number>`COUNT(DISTINCT ${payments.householdId})` })
+  const paidCountRow = await db.select({ count: sql<number>`COUNT(DISTINCT ${payments.householdId})` })
     .from(payments)
     .where(eq(payments.periodId, periodId))
-    .get()?.count ?? 0
+    .get()
+  const paidCount = paidCountRow?.count ?? 0
 
   // 已收金額統計
-  const stats = db.select({
+  const stats = await db.select({
     totalCollected: sql<number>`COALESCE(SUM(${payments.totalAmount}), 0)`,
     cashAmount: sql<number>`COALESCE(SUM(CASE WHEN ${payments.paymentMethod} = 'cash' THEN ${payments.totalAmount} ELSE 0 END), 0)`,
     transferAmount: sql<number>`COALESCE(SUM(CASE WHEN ${payments.paymentMethod} = 'transfer' THEN ${payments.totalAmount} ELSE 0 END), 0)`,
@@ -56,7 +58,7 @@ export async function PUT(
   const { id } = await params
   const body = await req.json()
 
-  const result = db.update(billingPeriods)
+  const result = await db.update(billingPeriods)
     .set({ status: body.status })
     .where(eq(billingPeriods.id, Number(id)))
     .returning().get()

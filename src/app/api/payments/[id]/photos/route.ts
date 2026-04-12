@@ -15,7 +15,7 @@ export async function POST(
     const paymentId = Number(id)
 
     // 取得繳費記錄
-    const payment = db.select().from(payments).where(eq(payments.id, paymentId)).get()
+    const payment = await db.select().from(payments).where(eq(payments.id, paymentId)).get()
     if (!payment) {
       return NextResponse.json({ error: '找不到繳費記錄' }, { status: 404 })
     }
@@ -43,7 +43,7 @@ export async function POST(
       : []
     existingPhotos.push(photoUrl)
 
-    db.update(payments)
+    await db.update(payments)
       .set({ receiptPhotos: JSON.stringify(existingPhotos) })
       .where(eq(payments.id, paymentId))
       .run()
