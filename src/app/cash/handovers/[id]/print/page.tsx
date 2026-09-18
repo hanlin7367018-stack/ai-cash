@@ -8,7 +8,7 @@ import {
   adhocPayments,
   adhocProjects,
 } from "@/db/schema"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { formatCurrency, formatROCDate } from "@/lib/date-utils"
 import { DENOMINATIONS } from "@/lib/constants"
 import { PrintTrigger } from "./print-trigger"
@@ -45,7 +45,7 @@ async function getHandoverData(id: number) {
     .from(payments)
     .leftJoin(households, eq(payments.householdId, households.id))
     .leftJoin(billingPeriods, eq(payments.periodId, billingPeriods.id))
-    .where(eq(payments.handoverId, id))
+    .where(and(eq(payments.handoverId, id), eq(payments.paymentMethod, "cash")))
     .all()
 
   // 臨時收費明細
@@ -61,10 +61,70 @@ async function getHandoverData(id: number) {
     .from(adhocPayments)
     .leftJoin(households, eq(adhocPayments.householdId, households.id))
     .leftJoin(adhocProjects, eq(adhocPayments.projectId, adhocProjects.id))
-    .where(eq(adhocPayments.handoverId, id))
+    .where(and(eq(adhocPayments.handoverId, id), eq(adhocPayments.paymentMethod, "cash")))
     .all()
 
-  return { handover, period, payments: relatedPayments, adhocPayments: relatedAdhocPayments }
+  // 轉帳明細（非現金）：管理費與臨時收費合併為一張表，以「項目」欄區分來源
+  const transferRows = await db
+    .select({
+      id: payments.id,
+      unitCode: households.unitCode,
+      ownerName: households.ownerName,
+      amount: payments.totalAmount,
+      paymentDate: payments.paymentDate,
+      receiptNumber: payments.receiptNumber,
+      periodName: billingPeriods.periodName,
+    })
+    .from(payments)
+    .leftJoin(households, eq(payments.householdId, households.id))
+    .leftJoin(billingPeriods, eq(payments.periodId, billingPeriods.id))
+    .where(and(eq(payments.handoverId, id), eq(payments.paymentMethod, "transfer")))
+    .all()
+
+  const transferAdhocRows = await db
+    .select({
+      id: adhocPayments.id,
+      unitCode: households.unitCode,
+      ownerName: households.ownerName,
+      amount: adhocPayments.amount,
+      paymentDate: adhocPayments.paymentDate,
+      projectName: adhocProjects.name,
+    })
+    .from(adhocPayments)
+    .leftJoin(households, eq(adhocPayments.householdId, households.id))
+    .leftJoin(adhocProjects, eq(adhocPayments.projectId, adhocProjects.id))
+    .where(and(eq(adhocPayments.handoverId, id), eq(adhocPayments.paymentMethod, "transfer")))
+    .all()
+
+  // 合併成統一結構，管理費的「項目」是期別、臨時收費的「項目」是專案名稱
+  const transfers = [
+    ...transferRows.map((r) => ({
+      key: `p-${r.id}`,
+      unitCode: r.unitCode,
+      ownerName: r.ownerName,
+      item: shortPeriodLabel(r.periodName),
+      receiptNumber: r.receiptNumber as string | null,
+      amount: r.amount,
+      paymentDate: r.paymentDate,
+    })),
+    ...transferAdhocRows.map((r) => ({
+      key: `a-${r.id}`,
+      unitCode: r.unitCode,
+      ownerName: r.ownerName,
+      item: r.projectName ?? "臨時收費",
+      receiptNumber: null as string | null,
+      amount: r.amount,
+      paymentDate: r.paymentDate,
+    })),
+  ].sort((a, b) => a.paymentDate.localeCompare(b.paymentDate))
+
+  return {
+    handover,
+    period,
+    payments: relatedPayments,
+    adhocPayments: relatedAdhocPayments,
+    transfers,
+  }
 }
 
 // DB 內 periodName 存成「115年1-2月」；顯示層統一將「月」替換為「期」
@@ -115,7 +175,10 @@ export default async function HandoverPrintPage({
   const data = await getHandoverData(handoverId)
   if (!data) notFound()
 
-  const { handover, period, payments: list, adhocPayments: adhocList } = data
+  const { handover, period, payments: list, adhocPayments: adhocList, transfers } = data
+
+  // 轉帳款項不計入交付現金總額，僅供核對
+  const transferTotal = transfers.reduce((s, t) => s + t.amount, 0)
 
   // 收集本批次涵蓋的所有期別（去重複，保持原順序）
   const uniquePeriodNames: string[] = []
@@ -201,6 +264,14 @@ export default async function HandoverPrintPage({
                 <th>接收主管</th>
                 <td>{handover.receiverName}</td>
               </tr>
+              {transfers.length > 0 ? (
+                <tr>
+                  <th>同期轉帳</th>
+                  <td colSpan={3}>
+                    ${formatCurrency(transferTotal)}（{transfers.length} 筆・未含在交付現金內）
+                  </td>
+                </tr>
+              ) : null}
               {handover.note ? (
                 <tr>
                   <th>備註</th>
@@ -330,6 +401,52 @@ export default async function HandoverPrintPage({
                   </tr>
                 </tbody>
               </table>
+            </>
+          )}
+
+          {/* 轉帳明細（非現金，不計入交付總金額） */}
+          {transfers.length > 0 && (
+            <>
+              <h3 className="section">轉帳明細（非現金）</h3>
+              <table className="payments">
+                <thead>
+                  <tr>
+                    <th style={{ width: "7%" }}>序號</th>
+                    <th style={{ width: "11%" }}>棟別</th>
+                    <th style={{ width: "16%" }}>住戶</th>
+                    <th style={{ width: "16%" }}>項目</th>
+                    <th style={{ width: "18%" }}>收據編號</th>
+                    <th style={{ width: "14%" }}>金額</th>
+                    <th style={{ width: "10%" }}>狀態</th>
+                    <th style={{ width: "18%" }}>日期</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transfers.map((t, i) => (
+                    <tr key={t.key}>
+                      <td className="center">{i + 1}</td>
+                      <td className="center">{t.unitCode ?? "-"}</td>
+                      <td>{t.ownerName ?? "-"}</td>
+                      <td className="center">{t.item}</td>
+                      <td className="center">{t.receiptNumber ?? "－"}</td>
+                      <td className="num">${formatCurrency(t.amount)}</td>
+                      <td className="center">已轉帳</td>
+                      <td className="center">{t.paymentDate}</td>
+                    </tr>
+                  ))}
+                  <tr className="total">
+                    <td colSpan={5} className="right">
+                      總筆數：{transfers.length} 筆
+                    </td>
+                    <td className="num" colSpan={3}>
+                      轉帳小計：${formatCurrency(transferTotal)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <p className="note-transfer">
+                ※ 轉帳款項已直接匯入社區帳戶，不含在本次交付現金內，僅供核對。
+              </p>
             </>
           )}
 
@@ -492,6 +609,11 @@ export default async function HandoverPrintPage({
           padding: 16px 0;
           border: 1px dashed #ccc;
           font-size: 12px;
+        }
+        .note-transfer {
+          margin-top: 6px;
+          font-size: 11px;
+          color: #666;
         }
         .verify th {
           background: #f3f4f6;

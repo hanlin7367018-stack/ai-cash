@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import db from '@/db'
 import { cashHandovers, payments, households, billingPeriods, adhocPayments, adhocProjects } from '@/db/schema'
-import { eq, asc } from 'drizzle-orm'
+import { and, eq, asc } from 'drizzle-orm'
 import ExcelJS from 'exceljs'
 
 // 匯出 Excel
@@ -49,8 +49,59 @@ async function exportHandover(handoverId: number) {
   })
     .from(payments)
     .leftJoin(households, eq(payments.householdId, households.id))
-    .where(eq(payments.handoverId, handoverId))
+    // 轉帳歸戶後同樣帶 handoverId，須加付款方式條件，否則會混進現金明細
+    .where(and(eq(payments.handoverId, handoverId), eq(payments.paymentMethod, 'cash')))
     .all()
+
+  // 轉帳明細（非現金，不計入交付總金額）
+  const transferRows = await db.select({
+    unitCode: households.unitCode,
+    ownerName: households.ownerName,
+    amount: payments.totalAmount,
+    paymentDate: payments.paymentDate,
+    receiptNumber: payments.receiptNumber,
+    periodName: billingPeriods.periodName,
+  })
+    .from(payments)
+    .leftJoin(households, eq(payments.householdId, households.id))
+    .leftJoin(billingPeriods, eq(payments.periodId, billingPeriods.id))
+    .where(and(eq(payments.handoverId, handoverId), eq(payments.paymentMethod, 'transfer')))
+    .all()
+
+  const transferAdhocRows = await db.select({
+    unitCode: households.unitCode,
+    ownerName: households.ownerName,
+    amount: adhocPayments.amount,
+    paymentDate: adhocPayments.paymentDate,
+    projectName: adhocProjects.name,
+  })
+    .from(adhocPayments)
+    .leftJoin(households, eq(adhocPayments.householdId, households.id))
+    .leftJoin(adhocProjects, eq(adhocPayments.projectId, adhocProjects.id))
+    .where(and(eq(adhocPayments.handoverId, handoverId), eq(adhocPayments.paymentMethod, 'transfer')))
+    .all()
+
+  // 合併：管理費的「項目」是期別、臨時收費的「項目」是專案名稱
+  const transfers = [
+    ...transferRows.map((r) => ({
+      unitCode: r.unitCode,
+      ownerName: r.ownerName,
+      item: r.periodName?.replace(/月$/, '期').replace(/^\d+年/, '') ?? '-',
+      receiptNumber: r.receiptNumber as string | null,
+      amount: r.amount,
+      paymentDate: r.paymentDate,
+    })),
+    ...transferAdhocRows.map((r) => ({
+      unitCode: r.unitCode,
+      ownerName: r.ownerName,
+      item: r.projectName ?? '臨時收費',
+      receiptNumber: null as string | null,
+      amount: r.amount,
+      paymentDate: r.paymentDate,
+    })),
+  ].sort((a, b) => a.paymentDate.localeCompare(b.paymentDate))
+
+  const transferTotal = transfers.reduce((s, t) => s + t.amount, 0)
 
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('交付簽收單')
@@ -70,6 +121,9 @@ async function exportHandover(handoverId: number) {
   ws.addRow(['接收主管', handover.receiverName])
   ws.addRow(['總筆數', handover.totalCount])
   ws.addRow(['總金額', handover.totalAmount])
+  if (transfers.length > 0) {
+    ws.addRow(['同期轉帳', `$${transferTotal.toLocaleString('zh-TW')}（${transfers.length} 筆・未含在交付現金內）`])
+  }
   ws.addRow([])
 
   // 幣別盤點
@@ -114,7 +168,7 @@ async function exportHandover(handoverId: number) {
     .from(adhocPayments)
     .leftJoin(households, eq(adhocPayments.householdId, households.id))
     .leftJoin(adhocProjects, eq(adhocPayments.projectId, adhocProjects.id))
-    .where(eq(adhocPayments.handoverId, handoverId))
+    .where(and(eq(adhocPayments.handoverId, handoverId), eq(adhocPayments.paymentMethod, 'cash')))
     .all()
 
   if (relatedAdhoc.length > 0) {
@@ -124,6 +178,17 @@ async function exportHandover(handoverId: number) {
       ws.addRow([i + 1, p.unitCode, p.ownerName, p.projectName, p.amount, p.paymentDate])
     })
     ws.addRow(['', '', '', '合計', relatedAdhoc.reduce((s, p) => s + p.amount, 0), ''])
+    ws.addRow([])
+  }
+
+  if (transfers.length > 0) {
+    ws.addRow(['【轉帳明細（非現金）】'])
+    ws.addRow(['序號', '棟號', '住戶', '項目', '收據編號', '金額', '狀態', '日期'])
+    transfers.forEach((t, i) => {
+      ws.addRow([i + 1, t.unitCode, t.ownerName, t.item, t.receiptNumber ?? '－', t.amount, '已轉帳', t.paymentDate])
+    })
+    ws.addRow(['', '', '', '', '轉帳小計', transferTotal, '', ''])
+    ws.addRow(['※ 轉帳款項已直接匯入社區帳戶，不含在本次交付現金內，僅供核對。'])
     ws.addRow([])
   }
 

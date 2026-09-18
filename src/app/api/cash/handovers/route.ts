@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import db from '@/db'
 import { cashHandovers, payments, adhocPayments } from '@/db/schema'
-import { and, eq, desc, sql } from 'drizzle-orm'
+import { and, eq, desc, sql, isNull } from 'drizzle-orm'
 import { todayString } from '@/lib/date-utils'
 import { calculateDenominationTotal, DENOMINATIONS } from '@/lib/constants'
 
@@ -114,6 +114,29 @@ export async function POST(req: NextRequest) {
         and(
           eq(adhocPayments.handoverStatus, 'pending'),
           eq(adhocPayments.paymentMethod, 'cash')
+        )
+      )
+      .run()
+
+    // 將尚未歸戶的轉帳一併掛到這張簽收單，供簽收單列出轉帳明細。
+    // 只綁 handoverId、不動 handoverStatus：轉帳的錢直接進帳戶，
+    // 沒有「交付」這件事，狀態文字一律由付款方式決定。
+    await db.update(payments)
+      .set({ handoverId: handover.id })
+      .where(
+        and(
+          eq(payments.paymentMethod, 'transfer'),
+          isNull(payments.handoverId)
+        )
+      )
+      .run()
+
+    await db.update(adhocPayments)
+      .set({ handoverId: handover.id })
+      .where(
+        and(
+          eq(adhocPayments.paymentMethod, 'transfer'),
+          isNull(adhocPayments.handoverId)
         )
       )
       .run()
