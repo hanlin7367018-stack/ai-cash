@@ -180,6 +180,13 @@ export default async function HandoverPrintPage({
   // 轉帳款項不計入交付現金總額，僅供核對
   const transferTotal = transfers.reduce((s, t) => s + t.amount, 0)
 
+  // 收款明細與臨時收費各自的現金小計。
+  // handover.totalAmount 是兩者相加，不可直接當成收款明細那段的合計，
+  // 否則臨時收費的金額會在單據上被算兩次。
+  const listSubtotal = list.reduce((s, p) => s + p.totalAmount, 0)
+  const adhocSubtotal = adhocList.reduce((s, p) => s + p.amount, 0)
+  const cashDetailCount = list.length + adhocList.length
+
   // 收集本批次涵蓋的所有期別（去重複，保持原順序）
   const uniquePeriodNames: string[] = []
   const seenPeriodIds = new Set<number>()
@@ -358,7 +365,7 @@ export default async function HandoverPrintPage({
                     總筆數：{list.length} 筆
                   </td>
                   <td className="num" colSpan={2}>
-                    總金額：${formatCurrency(handover.totalAmount)}
+                    小計：${formatCurrency(listSubtotal)}
                   </td>
                 </tr>
               </tbody>
@@ -456,12 +463,25 @@ export default async function HandoverPrintPage({
             <tbody>
               <tr>
                 <th>繳費總額</th>
-                <td className="num">${formatCurrency(handover.totalAmount)}</td>
+                <td className="num">
+                  ${formatCurrency(handover.totalAmount)}
+                  <span className="verify-sub">（{cashDetailCount} 筆）</span>
+                </td>
                 <th>幣別合計</th>
                 <td className="num">
                   ${formatCurrency(handover.denominationTotal)}
                 </td>
               </tr>
+              {adhocList.length > 0 ? (
+                <tr>
+                  <th>金額組成</th>
+                  <td className="num" colSpan={3}>
+                    收款明細 ${formatCurrency(listSubtotal)}
+                    <span className="verify-sub"> ＋ </span>
+                    臨時收費 ${formatCurrency(adhocSubtotal)}
+                  </td>
+                </tr>
+              ) : null}
               <tr>
                 <th>差額</th>
                 <td className="num" colSpan={3}>
@@ -609,6 +629,11 @@ export default async function HandoverPrintPage({
           padding: 16px 0;
           border: 1px dashed #ccc;
           font-size: 12px;
+        }
+        .verify-sub {
+          font-weight: 400;
+          font-size: 11px;
+          color: #666;
         }
         .note-transfer {
           margin-top: 6px;
