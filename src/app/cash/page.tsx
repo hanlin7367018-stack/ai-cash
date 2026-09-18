@@ -184,7 +184,7 @@ export default function CashPage() {
             <div className="flex items-center gap-3">
               <Wallet className="h-8 w-8 text-amber-600" />
               <div>
-                <p className="text-sm text-amber-700">目前���持現金</p>
+                <p className="text-sm text-amber-700">目前手持現金</p>
                 <p className="text-3xl font-bold text-amber-800">
                   ${formatCurrency(cashBalance)}
                 </p>
