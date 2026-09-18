@@ -25,6 +25,7 @@ import { Check, Plus, Lock, ClipboardList } from "lucide-react"
 import { formatCurrency, todayString } from "@/lib/date-utils"
 import { BUILDINGS, PAYMENT_METHODS } from "@/lib/constants"
 import { cn } from "@/lib/utils"
+import { PaymentMethodDialog } from "@/components/payment-method-dialog"
 
 interface AdhocProject {
   id: number
@@ -51,7 +52,12 @@ export default function AdhocPage() {
   const [households, setHouseholds] = useState<Household[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null)
   const [paidIds, setPaidIds] = useState<Set<number>>(new Set())
+  // householdId → 該戶在本專案的 adhocPayment id，供更正付款方式使用
+  const [paidPaymentIds, setPaidPaymentIds] = useState<Map<number, number>>(new Map())
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  // 更正付款方式視窗
+  const [correctOpen, setCorrectOpen] = useState(false)
+  const [correctPaymentId, setCorrectPaymentId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
 
@@ -84,7 +90,10 @@ export default function AdhocPage() {
   }, [])
 
   const loadProjectDetail = useCallback(async (projectId: number) => {
-    const res = await fetch(`/api/adhoc-projects/${projectId}`)
+    const [res, paymentsRes] = await Promise.all([
+      fetch(`/api/adhoc-projects/${projectId}`),
+      fetch(`/api/adhoc-projects/${projectId}/payments`),
+    ])
     if (res.ok) {
       const data = await res.json()
       setPaidIds(new Set(data.paidHouseholdIds || []))
@@ -96,6 +105,15 @@ export default function AdhocPage() {
             : p
         )
       )
+    }
+    // 建立 householdId → adhocPayment id 對應，供更正付款方式取用
+    if (paymentsRes.ok) {
+      const records: { id: number; householdId: number }[] = await paymentsRes.json()
+      const map = new Map<number, number>()
+      for (const r of records) {
+        if (!map.has(r.householdId)) map.set(r.householdId, r.id)
+      }
+      setPaidPaymentIds(map)
     }
   }, [])
 
@@ -115,7 +133,15 @@ export default function AdhocPage() {
 
   // 點擊住戶 toggle 勾選
   const handleToggle = (householdId: number) => {
-    if (paidIds.has(householdId)) return // 已繳不可點
+    // 已繳的住戶改為開啟更正視窗，供付款方式按錯時修正
+    if (paidIds.has(householdId)) {
+      const paymentId = paidPaymentIds.get(householdId)
+      if (paymentId) {
+        setCorrectPaymentId(paymentId)
+        setCorrectOpen(true)
+      }
+      return
+    }
     setSelectedIds((prev) => {
       const next = new Set(prev)
       if (next.has(householdId)) {
@@ -402,19 +428,21 @@ export default function AdhocPage() {
                     {units.map((h) => {
                       const isPaid = paidIds.has(h.id)
                       const isSelected = selectedIds.has(h.id)
+                      // 已繳仍可點（開啟更正付款方式視窗），
+                      // 只有「未繳且專案已結案」才禁用
                       return (
                         <button
                           key={h.id}
                           onClick={() => handleToggle(h.id)}
-                          disabled={isPaid || selectedProject.status === "closed"}
+                          disabled={!isPaid && selectedProject.status === "closed"}
                           className={cn(
                             "relative flex flex-col items-center justify-center p-2 rounded-lg border-2 transition-all text-center min-h-[72px]",
                             isPaid
-                              ? "bg-green-50 border-green-300 text-green-700"
+                              ? "bg-green-50 border-green-300 text-green-700 hover:bg-green-100 hover:border-green-400 cursor-pointer"
                               : isSelected
                                 ? "bg-yellow-50 border-yellow-400 text-yellow-800 ring-2 ring-yellow-300"
                                 : "bg-red-50 border-red-300 text-red-700 hover:bg-red-100 hover:border-red-400 cursor-pointer",
-                            (isPaid || selectedProject.status === "closed") && "cursor-default"
+                            !isPaid && selectedProject.status === "closed" && "cursor-default"
                           )}
                         >
                           {isPaid && (
@@ -530,6 +558,17 @@ export default function AdhocPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 更正付款方式（點已繳住戶時開啟） */}
+      <PaymentMethodDialog
+        open={correctOpen}
+        onOpenChange={setCorrectOpen}
+        kind="adhoc"
+        paymentId={correctPaymentId}
+        onUpdated={() => {
+          if (selectedProjectId) loadProjectDetail(selectedProjectId)
+        }}
+      />
     </AppShell>
   )
 }

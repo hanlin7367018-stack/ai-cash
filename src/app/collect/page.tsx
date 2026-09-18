@@ -26,6 +26,7 @@ import { formatCurrency } from "@/lib/date-utils"
 import { BUILDINGS, FEE_ITEMS, PAYMENT_METHODS } from "@/lib/constants"
 import { cn } from "@/lib/utils"
 import { recognizeReceiptNumber } from "@/lib/ocr"
+import { PaymentMethodDialog } from "@/components/payment-method-dialog"
 
 interface Household {
   id: number
@@ -51,6 +52,11 @@ export default function CollectPage() {
   const [households, setHouseholds] = useState<Household[]>([])
   const [periods, setPeriods] = useState<Period[]>([])
   const [paidIds, setPaidIds] = useState<Set<number>>(new Set())
+  // householdId → 該戶在本期最新一筆 payment 的 id，供更正付款方式使用
+  const [paidPaymentIds, setPaidPaymentIds] = useState<Map<number, number>>(new Map())
+  // 更正付款方式視窗
+  const [correctOpen, setCorrectOpen] = useState(false)
+  const [correctPaymentId, setCorrectPaymentId] = useState<number | null>(null)
   const [selectedPeriod, setSelectedPeriod] = useState<number | null>(null)
   const [selectedHousehold, setSelectedHousehold] = useState<Household | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -95,6 +101,12 @@ export default function CollectPage() {
       const data = await res.json()
       const ids = new Set<number>(data.map((p: { householdId: number }) => p.householdId))
       setPaidIds(ids)
+      // API 依 createdAt 由新到舊排序，同戶多筆時取最新那筆
+      const map = new Map<number, number>()
+      for (const p of data as { id: number; householdId: number }[]) {
+        if (!map.has(p.householdId)) map.set(p.householdId, p.id)
+      }
+      setPaidPaymentIds(map)
     } catch {
       console.error("載入繳費記錄失敗")
     }
@@ -135,8 +147,15 @@ export default function CollectPage() {
 
   // 點擊住戶，開啟收款表單
   const handleSelectHousehold = (h: Household) => {
+    // 已繳的住戶改為開啟更正視窗，供付款方式按錯時當場修正
     if (paidIds.has(h.id)) {
-      toast.info(`${h.unitCode} ${h.ownerName} 已繳費`)
+      const paymentId = paidPaymentIds.get(h.id)
+      if (paymentId) {
+        setCorrectPaymentId(paymentId)
+        setCorrectOpen(true)
+      } else {
+        toast.info(`${h.unitCode} ${h.ownerName} 已繳費`)
+      }
       return
     }
     setSelectedHousehold(h)
@@ -332,6 +351,7 @@ export default function CollectPage() {
           <span className="text-gray-600">未繳</span>
         </div>
         <div className="ml-auto text-gray-400">
+          <span className="hidden sm:inline">點已繳住戶可更正付款方式 · </span>
           已繳 {paidIds.size} / 共 {households.length} 戶
         </div>
       </div>
@@ -354,7 +374,7 @@ export default function CollectPage() {
                       className={cn(
                         "relative flex flex-col items-center justify-center p-2 rounded-lg border-2 transition-all text-center min-h-[72px]",
                         isPaid
-                          ? "bg-green-50 border-green-300 text-green-700"
+                          ? "bg-green-50 border-green-300 text-green-700 hover:bg-green-100 hover:border-green-400 cursor-pointer"
                           : "bg-red-50 border-red-300 text-red-700 hover:bg-red-100 hover:border-red-400 cursor-pointer"
                       )}
                     >
@@ -606,6 +626,17 @@ export default function CollectPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* 更正付款方式（點已繳住戶時開啟） */}
+      <PaymentMethodDialog
+        open={correctOpen}
+        onOpenChange={setCorrectOpen}
+        kind="payment"
+        paymentId={correctPaymentId}
+        onUpdated={() => {
+          if (selectedPeriod) loadPaidList(selectedPeriod)
+        }}
+      />
     </AppShell>
   )
 }

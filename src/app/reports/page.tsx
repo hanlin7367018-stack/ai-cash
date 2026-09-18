@@ -22,13 +22,30 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { toast } from "sonner"
-import { AlertCircle, CheckCircle2, ArrowRightLeft, AlertTriangle, FileSpreadsheet } from "lucide-react"
+import { AlertCircle, CheckCircle2, ArrowRightLeft, AlertTriangle, FileSpreadsheet, Pencil } from "lucide-react"
 import { formatCurrency } from "@/lib/date-utils"
+import { paymentStatusLabel, paymentStatusVariant, periodOfDate } from "@/lib/payment-status"
+import { PaymentMethodDialog, type PaymentKind } from "@/components/payment-method-dialog"
 
 interface Period {
   id: number
   periodName: string
   status: string
+  rocYear: number
+  startMonth: number
+  endMonth: number
+}
+
+// 臨時收費繳費記錄（無期別欄位，期別由收款日期換算）
+interface AdhocPaymentItem {
+  id: number
+  unitCode: string
+  ownerName: string
+  projectName: string
+  totalAmount: number
+  paymentMethod: string
+  paymentDate: string
+  handoverStatus: string
 }
 
 interface UnpaidItem {
@@ -91,7 +108,19 @@ export default function ReportsPage() {
   const [paymentList, setPaymentList] = useState<PaymentItem[]>([])
   const [handoverList, setHandoverList] = useState<HandoverItem[]>([])
   const [crossPeriodUnpaid, setCrossPeriodUnpaid] = useState<CrossPeriodUnpaidItem[]>([])
+  const [adhocAll, setAdhocAll] = useState<AdhocPaymentItem[]>([])
   const [loading, setLoading] = useState(true)
+  // 更正付款方式視窗
+  const [correctOpen, setCorrectOpen] = useState(false)
+  const [correctKind, setCorrectKind] = useState<PaymentKind>("payment")
+  const [correctPaymentId, setCorrectPaymentId] = useState<number | null>(null)
+
+  // 開啟更正視窗
+  const openCorrect = (kind: PaymentKind, id: number) => {
+    setCorrectKind(kind)
+    setCorrectPaymentId(id)
+    setCorrectOpen(true)
+  }
 
   useEffect(() => {
     loadPeriods()
@@ -123,18 +152,33 @@ export default function ReportsPage() {
 
   const loadReportData = async (periodId: string) => {
     try {
-      const [unpaidRes, paymentsRes, handoversRes] = await Promise.all([
+      const [unpaidRes, paymentsRes, handoversRes, adhocRes] = await Promise.all([
         fetch(`/api/payments/unpaid?periodId=${periodId}`),
         fetch(`/api/payments?periodId=${periodId}`),
         fetch("/api/cash/handovers"),
+        fetch("/api/adhoc-payments"),
       ])
       setUnpaidList(await unpaidRes.json())
       setPaymentList(await paymentsRes.json())
+      setAdhocAll(adhocRes.ok ? await adhocRes.json() : [])
       setHandoverList(await handoversRes.json())
     } catch {
       toast.error("載入報表失敗")
     }
   }
+
+  // 臨時收費沒有期別欄位，依收款日期換算後對應到目前選定的期別
+  const currentPeriod = periods.find((p) => p.id === Number(selectedPeriod))
+  const adhocInPeriod = currentPeriod
+    ? adhocAll.filter((a) => {
+        const d = periodOfDate(a.paymentDate)
+        return (
+          d.rocYear === currentPeriod.rocYear &&
+          d.startMonth === currentPeriod.startMonth
+        )
+      })
+    : []
+  const adhocTotal = adhocInPeriod.reduce((s, a) => s + a.totalAmount, 0)
 
   // 計算統計
   const totalCollected = paymentList.reduce((s, p) => s + p.totalAmount, 0)
@@ -303,6 +347,7 @@ export default function ReportsPage() {
                       <TableHead className="hidden sm:table-cell">日期</TableHead>
                       <TableHead className="text-right">金額</TableHead>
                       <TableHead>狀態</TableHead>
+                      <TableHead className="w-12"></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -322,11 +367,20 @@ export default function ReportsPage() {
                         </TableCell>
                         <TableCell>
                           <Badge
-                            variant={p.handoverStatus === "handed_over" ? "secondary" : "outline"}
+                            variant={paymentStatusVariant(p.paymentMethod, p.handoverStatus)}
                             className="text-xs"
                           >
-                            {p.handoverStatus === "handed_over" ? "已交付" : "待交付"}
+                            {paymentStatusLabel(p.paymentMethod, p.handoverStatus)}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <button
+                            onClick={() => openCorrect("payment", p.id)}
+                            title="更正付款方式"
+                            className="p-1.5 rounded hover:bg-gray-100"
+                          >
+                            <Pencil className="h-4 w-4 text-gray-400" />
+                          </button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -335,13 +389,87 @@ export default function ReportsPage() {
                       <TableCell className="text-right">
                         ${formatCurrency(totalCollected)}
                       </TableCell>
-                      <TableCell />
+                      <TableCell colSpan={2} />
                     </TableRow>
                   </TableBody>
                 </Table>
               )}
             </CardContent>
           </Card>
+          {/* 臨時收費（依收款日期歸入本期） */}
+          {adhocInPeriod.length > 0 && (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle className="text-lg">
+                  臨時收費（{adhocInPeriod.length} 筆）
+                </CardTitle>
+                <p className="text-xs text-gray-400">依收款日期歸入本期</p>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>收費專案</TableHead>
+                      <TableHead>棟號</TableHead>
+                      <TableHead className="hidden sm:table-cell">姓名</TableHead>
+                      <TableHead>方式</TableHead>
+                      <TableHead className="hidden sm:table-cell">日期</TableHead>
+                      <TableHead className="text-right">金額</TableHead>
+                      <TableHead>狀態</TableHead>
+                      <TableHead className="w-12"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {adhocInPeriod.map((a) => (
+                      <TableRow key={a.id}>
+                        <TableCell className="text-xs">{a.projectName}</TableCell>
+                        <TableCell className="font-bold">{a.unitCode}</TableCell>
+                        <TableCell className="hidden sm:table-cell">{a.ownerName}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={a.paymentMethod === "cash" ? "default" : "secondary"}
+                            className="text-xs"
+                          >
+                            {a.paymentMethod === "cash" ? "現金" : "轉帳"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="hidden sm:table-cell text-xs">
+                          {a.paymentDate}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">
+                          ${formatCurrency(a.totalAmount)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={paymentStatusVariant(a.paymentMethod, a.handoverStatus)}
+                            className="text-xs"
+                          >
+                            {paymentStatusLabel(a.paymentMethod, a.handoverStatus)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <button
+                            onClick={() => openCorrect("adhoc", a.id)}
+                            title="更正付款方式"
+                            className="p-1.5 rounded hover:bg-gray-100"
+                          >
+                            <Pencil className="h-4 w-4 text-gray-400" />
+                          </button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    <TableRow className="bg-gray-50 font-bold">
+                      <TableCell colSpan={5}>合計</TableCell>
+                      <TableCell className="text-right">
+                        ${formatCurrency(adhocTotal)}
+                      </TableCell>
+                      <TableCell colSpan={2} />
+                    </TableRow>
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* 交付明細 */}
@@ -474,6 +602,17 @@ export default function ReportsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* 更正付款方式 */}
+      <PaymentMethodDialog
+        open={correctOpen}
+        onOpenChange={setCorrectOpen}
+        kind={correctKind}
+        paymentId={correctPaymentId}
+        onUpdated={() => {
+          if (selectedPeriod) loadReportData(selectedPeriod)
+        }}
+      />
     </AppShell>
   )
 }
